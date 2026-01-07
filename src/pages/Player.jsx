@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { ns } from "../api/netshort";
@@ -51,6 +51,14 @@ function formatTime(sec) {
   return `${m}:${String(r).padStart(2, "0")}`;
 }
 
+function formatLikes(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) return "0";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(Math.floor(n));
+}
+
 function Slide({
   data,
   active,
@@ -60,7 +68,6 @@ function Slide({
   onToggleMute,
   onToggleLike,
   onOpenQuality,
-  onSelectQuality,
 }) {
   const videoRef = useRef(null);
   const tapRef = useRef({ t: 0 });
@@ -114,6 +121,7 @@ function Slide({
     const last = tapRef.current.t;
     tapRef.current.t = now;
 
+    // double tap = like
     if (now - last < 260) {
       setBurst(true);
       onToggleLike?.();
@@ -121,6 +129,7 @@ function Slide({
       return;
     }
 
+    // single tap = play/pause
     setTimeout(() => {
       if (Date.now() - tapRef.current.t >= 240) togglePlay();
     }, 240);
@@ -152,6 +161,7 @@ function Slide({
 
       <BufferingIndicator show={buffering && active} />
 
+      {/* burst like */}
       <div
         className={`absolute inset-0 flex items-center justify-center pointer-events-none transition ${
           burst ? "opacity-100 scale-100" : "opacity-0 scale-90"
@@ -161,11 +171,12 @@ function Slide({
         <div className="text-7xl drop-shadow-[0_20px_50px_rgba(0,0,0,0.6)]">💚</div>
       </div>
 
+      {/* top bar */}
       <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
         <div className="glass-pill flex items-center gap-2">
           <i className="ri-film-line" />
           <span className="text-xs font-semibold">EP {data.episodeNo}</span>
-          {data.qualityLabel ? <span className="text-[11px] text-white/70">• {data.qualityLabel}</span> : null}
+          {/* ✅ hilangkan label resolusi di sini (40p dst) */}
         </div>
 
         <div className="flex items-center gap-2">
@@ -173,7 +184,7 @@ function Slide({
             className="glass-pill"
             onClick={data.qualities?.length ? onOpenQuality : undefined}
             style={{ opacity: data.qualities?.length ? 1 : 0.55 }}
-            title="Quality"
+            title="Kualitas"
           >
             <i className="ri-settings-3-line" /> <span className="text-xs">Kualitas</span>
           </button>
@@ -184,26 +195,50 @@ function Slide({
         </div>
       </div>
 
-      <div className="absolute right-4 bottom-28 flex flex-col gap-3">
-        <button onClick={onToggleLike} className="w-12 h-12 rounded-2xl bg-white/10 border border-white/10 backdrop-blur-xl" title="Like">
-          <i className={data.liked ? "ri-heart-3-fill text-[rgb(var(--brand))] text-xl" : "ri-heart-3-line text-xl"} />
-        </button>
+      {/* right actions */}
+      <div className="absolute right-4 bottom-28 flex flex-col gap-3 items-center">
+        <div className="flex flex-col items-center gap-1">
+          <button
+            onClick={onToggleLike}
+            className="w-12 h-12 rounded-2xl bg-white/10 border border-white/10 backdrop-blur-xl"
+            title="Like"
+          >
+            <i
+              className={
+                data.liked
+                  ? "ri-heart-3-fill text-[rgb(var(--brand))] text-xl"
+                  : "ri-heart-3-line text-xl"
+              }
+            />
+          </button>
+          {/* ✅ total likes di bawah love */}
+          <div className="text-[11px] text-white/75 select-none">
+            {formatLikes(data.likeCount || 0)}
+          </div>
+        </div>
 
-        <button className="w-12 h-12 rounded-2xl bg-white/10 border border-white/10 backdrop-blur-xl" title="Share">
+        <button
+          className="w-12 h-12 rounded-2xl bg-white/10 border border-white/10 backdrop-blur-xl"
+          title="Share"
+        >
           <i className="ri-share-forward-line text-xl" />
         </button>
 
-        <button onClick={onRequestNext} className="w-12 h-12 rounded-2xl bg-white/10 border border-white/10 backdrop-blur-xl" title="Next">
+        <button
+          onClick={onRequestNext}
+          className="w-12 h-12 rounded-2xl bg-white/10 border border-white/10 backdrop-blur-xl"
+          title="Next"
+        >
           <i className="ri-skip-down-line text-xl" />
         </button>
       </div>
 
+      {/* bottom info */}
       <div className="absolute left-4 right-20 bottom-24">
+        {/* ✅ hilangkan “PANSA” / teks instruksi */}
         <div className="font-display font-bold text-xl md:text-2xl">{data.title}</div>
-        <div className="mt-1 text-sm text-white/75">
-          Tap pause/play • Double tap like • Swipe up/down episode
-        </div>
 
+        {/* progress */}
         <div className="mt-4">
           <div className="progress-rail">
             <div className="progress-fill" style={{ width: `${pct}%` }} />
@@ -214,17 +249,15 @@ function Slide({
           </div>
         </div>
 
+        {/* nav ep */}
         <div className="mt-3 flex items-center gap-2">
-          <button onClick={onRequestPrev} className="glass-pill text-xs"><i className="ri-arrow-down-s-line" /> Prev</button>
-          <button onClick={onRequestNext} className="glass-pill text-xs"><i className="ri-arrow-up-s-line" /> Next</button>
-          <button
-            onClick={() => onSelectQuality?.(data.qualities?.[data.qualities.length - 1])}
-            className="glass-pill text-xs"
-            style={{ opacity: data.qualities?.length ? 1 : 0.55 }}
-            title="Best quality"
-          >
-            <i className="ri-hd-line" /> Best
+          <button onClick={onRequestPrev} className="glass-pill text-xs">
+            <i className="ri-arrow-down-s-line" /> Prev
           </button>
+          <button onClick={onRequestNext} className="glass-pill text-xs">
+            <i className="ri-arrow-up-s-line" /> Next
+          </button>
+          {/* ✅ hilangkan tombol Best */}
         </div>
       </div>
 
@@ -257,7 +290,31 @@ export default function Player() {
   const [hintDown, setHintDown] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  const title = meta?.title || "PANSA";
+  const title = meta?.title || "";
+
+  // ✅ hide bottom nav ONLY while player is mounted (tanpa ubah komponen lain)
+  useEffect(() => {
+    document.documentElement.classList.add("is-player");
+    return () => document.documentElement.classList.remove("is-player");
+  }, []);
+
+  const baseLikeCount = useMemo(() => {
+    // kalau meta punya likeNums misal "4.8K", kita parse kasar
+    const raw = meta?.likeNums ?? meta?.likeCount ?? 0;
+    const s = String(raw).trim();
+    if (!s) return 0;
+    // handle "4.8K"
+    const m = s.match(/^([\d.]+)\s*([kKmM])?$/);
+    if (m) {
+      const num = parseFloat(m[1]);
+      const suf = (m[2] || "").toLowerCase();
+      if (suf === "k") return Math.round(num * 1000);
+      if (suf === "m") return Math.round(num * 1000000);
+      if (Number.isFinite(num)) return Math.round(num);
+    }
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+  }, [meta]);
 
   const mapEpisode = (ep, url, qualities = []) => {
     const qPick = qualities?.[qualities.length - 1] || qualities?.[0] || null;
@@ -266,16 +323,20 @@ export default function Player() {
       episodeId: ep.episodeId,
       title,
       videoUrl: qPick?.url || url,
-      qualities: qualities.length ? qualities : (url ? [{ quality: "Auto", url }] : []),
-      qualityLabel: qPick?.quality || null,
+      qualities: qualities.length ? qualities : url ? [{ quality: "Auto", url }] : [],
       muted: false,
       liked: false,
+      likeCount: baseLikeCount, // ✅ likes tampil di UI
     };
   };
 
   const fetchVideoAndVariants = async (ep) => {
     try {
-      const r = await ns.videoUrl({ shortPlayId, episodeId: ep.episodeId, episodeNo: ep.episodeNo });
+      const r = await ns.videoUrl({
+        shortPlayId,
+        episodeId: ep.episodeId,
+        episodeNo: ep.episodeNo,
+      });
       if (r.data?.unlockResult?.data === false) return { url: null, qualities: [] };
 
       const url =
@@ -320,18 +381,23 @@ export default function Player() {
         if (!fetched.length) {
           for (let k = startIndex; k < eps.length; k++) {
             const { url, qualities } = await fetchVideoAndVariants(eps[k]);
-            if (url) { fetched.push(mapEpisode(eps[k], url, qualities)); break; }
+            if (url) {
+              fetched.push(mapEpisode(eps[k], url, qualities));
+              break;
+            }
           }
         }
 
         setItems(fetched);
         setActiveIndex(0);
-        requestAnimationFrame(() => wrapRef.current?.scrollTo({ top: 0, behavior: "auto" }));
+        requestAnimationFrame(() =>
+          wrapRef.current?.scrollTo({ top: 0, behavior: "auto" })
+        );
       } finally {
         loading.hide();
       }
     })();
-  }, [shortPlayId]);
+  }, [shortPlayId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const root = wrapRef.current;
@@ -339,7 +405,9 @@ export default function Player() {
 
     const io = new IntersectionObserver(
       (entries) => {
-        const best = entries.filter((e) => e.isIntersecting).sort((a, b) => (b.intersectionRatio || 0) - (a.intersectionRatio || 0))[0];
+        const best = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => (b.intersectionRatio || 0) - (a.intersectionRatio || 0))[0];
         if (!best) return;
         const idx = Number(best.target.getAttribute("data-index"));
         if (!Number.isNaN(idx)) setActiveIndex(idx);
@@ -358,9 +426,13 @@ export default function Player() {
 
     let t = 0;
     const onScroll = () => {
-      setHintUp(true); setHintDown(true);
+      setHintUp(true);
+      setHintDown(true);
       clearTimeout(t);
-      t = setTimeout(() => { setHintUp(false); setHintDown(false); }, 260);
+      t = setTimeout(() => {
+        setHintUp(false);
+        setHintDown(false);
+      }, 260);
     };
 
     root.addEventListener("scroll", onScroll, { passive: true });
@@ -391,7 +463,7 @@ export default function Player() {
         nextEpNo += 1;
       }
     })();
-  }, [activeIndex, episodes, items]);
+  }, [activeIndex, episodes, items]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const requestNext = useCallback(async () => {
     if (!episodes.length || !items.length) return;
@@ -419,7 +491,7 @@ export default function Player() {
     } finally {
       loading.hide();
     }
-  }, [episodes, items, loading]);
+  }, [episodes, items, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const requestPrev = useCallback(() => {
     const prev = Math.max(0, activeIndex - 1);
@@ -428,16 +500,34 @@ export default function Player() {
 
   const handleEnded = (idx) => {
     const next = idx + 1;
-    if (next < items.length) { goToIndex(next); return; }
+    if (next < items.length) {
+      goToIndex(next);
+      return;
+    }
     requestNext();
   };
 
-  const toggleMute = (idx) => setItems((prev) => prev.map((x, i) => (i === idx ? { ...x, muted: !x.muted } : x)));
-  const toggleLike = (idx) => setItems((prev) => prev.map((x, i) => (i === idx ? { ...x, liked: !x.liked } : x)));
+  const toggleMute = (idx) =>
+    setItems((prev) => prev.map((x, i) => (i === idx ? { ...x, muted: !x.muted } : x)));
+
+  const toggleLike = (idx) =>
+    setItems((prev) =>
+      prev.map((x, i) => {
+        if (i !== idx) return x;
+        const nextLiked = !x.liked;
+        const base = Number(x.likeCount || 0);
+        const nextCount = nextLiked ? base + 1 : Math.max(0, base - 1);
+        return { ...x, liked: nextLiked, likeCount: nextCount };
+      })
+    );
 
   const setQuality = (idx, choice) => {
     if (!choice?.url) return;
-    setItems((prev) => prev.map((x, i) => (i === idx ? { ...x, videoUrl: choice.url, qualityLabel: choice.quality || "Auto" } : x)));
+    setItems((prev) =>
+      prev.map((x, i) =>
+        i === idx ? { ...x, videoUrl: choice.url } : x
+      )
+    );
   };
 
   if (!items.length) {
@@ -457,6 +547,7 @@ export default function Player() {
 
   return (
     <div className="h-screen">
+      {/* ✅ back button only (tidak ada resolusi di dekat back) */}
       <div className="absolute top-4 left-4 z-50">
         <button onClick={() => nav(-1)} className="glass-pill text-sm">
           <i className="ri-arrow-left-line" /> Detail
@@ -478,14 +569,20 @@ export default function Player() {
               onToggleMute={() => toggleMute(idx)}
               onToggleLike={() => toggleLike(idx)}
               onOpenQuality={() => setSheetOpen(true)}
-              onSelectQuality={(choice) => setQuality(idx, choice)}
             />
           </div>
         ))}
       </div>
 
-      <BottomSheet open={sheetOpen} title="Pilih Kualitas" onClose={() => setSheetOpen(false)} height="58vh">
-        <div className="text-sm text-white/70">Pilih kualitas streaming (jika tersedia).</div>
+      <BottomSheet
+        open={sheetOpen}
+        title="Pilih Kualitas"
+        onClose={() => setSheetOpen(false)}
+        height="58vh"
+      >
+        <div className="text-sm text-white/70">
+          Pilih kualitas streaming (jika tersedia).
+        </div>
 
         <div className="mt-4 grid gap-2">
           {(activeSlide?.qualities || []).length ? (
@@ -494,19 +591,36 @@ export default function Player() {
               return (
                 <button
                   key={q.url}
-                  onClick={() => { setQuality(activeIndex, q); setSheetOpen(false); }}
+                  onClick={() => {
+                    setQuality(activeIndex, q);
+                    setSheetOpen(false);
+                  }}
                   className={`w-full text-left rounded-2xl px-4 py-4 border transition ${
-                    selected ? "bg-white/12 border-white/20" : "bg-white/6 border-white/10 hover:bg-white/10"
+                    selected
+                      ? "bg-white/12 border-white/20"
+                      : "bg-white/6 border-white/10 hover:bg-white/10"
                   }`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="font-semibold">
                       {q.quality || "Auto"}
-                      {selected ? <span className="ml-2 text-[11px] text-[rgb(var(--brand))]">Selected</span> : null}
+                      {selected ? (
+                        <span className="ml-2 text-[11px] text-[rgb(var(--brand))]">
+                          Selected
+                        </span>
+                      ) : null}
                     </div>
-                    <i className={selected ? "ri-check-line text-[rgb(var(--brand))]" : "ri-arrow-right-s-line"} />
+                    <i
+                      className={
+                        selected
+                          ? "ri-check-line text-[rgb(var(--brand))]"
+                          : "ri-arrow-right-s-line"
+                      }
+                    />
                   </div>
-                  <div className="mt-1 text-xs text-white/60 line-clamp-1">Streaming quality option</div>
+                  <div className="mt-1 text-xs text-white/60 line-clamp-1">
+                    Streaming quality option
+                  </div>
                 </button>
               );
             })
