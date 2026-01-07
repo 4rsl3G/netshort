@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { ns } from "../api/netshort";
@@ -8,6 +8,8 @@ import BottomSheet from "../components/BottomSheet";
 import BufferingIndicator from "../components/BufferingIndicator";
 import SwipeHint from "../components/SwipeHint";
 import { SkelPlayerSlide } from "../components/Skeletons";
+
+/* ---------------- helpers ---------------- */
 
 function pickVariantsFromResponse(resp) {
   const variants = [];
@@ -58,6 +60,36 @@ function formatLikes(v) {
   if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
   return String(Math.floor(n));
 }
+
+function parseLikeNums(raw) {
+  if (raw == null) return 0;
+  const s = String(raw).trim();
+  if (!s) return 0;
+
+  // "4.8K", "69.5K", "1.2M"
+  const m = s.match(/^([\d.]+)\s*([kKmM])?$/);
+  if (m) {
+    const num = parseFloat(m[1]);
+    const suf = (m[2] || "").toLowerCase();
+    if (!Number.isFinite(num)) return 0;
+    if (suf === "k") return Math.round(num * 1000);
+    if (suf === "m") return Math.round(num * 1000000);
+    return Math.round(num);
+  }
+
+  const n = Number(s);
+  return Number.isFinite(n) ? Math.round(n) : 0;
+}
+
+function stableDummyLikes(shortPlayId, episodeNo) {
+  const s = `${shortPlayId}-${episodeNo}`;
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  // 1K - 120K
+  return 1000 + (h % 119000);
+}
+
+/* ---------------- Slide ---------------- */
 
 function Slide({
   data,
@@ -161,7 +193,7 @@ function Slide({
 
       <BufferingIndicator show={buffering && active} />
 
-      {/* burst like */}
+      {/* like burst */}
       <div
         className={`absolute inset-0 flex items-center justify-center pointer-events-none transition ${
           burst ? "opacity-100 scale-100" : "opacity-0 scale-90"
@@ -171,32 +203,27 @@ function Slide({
         <div className="text-7xl drop-shadow-[0_20px_50px_rgba(0,0,0,0.6)]">💚</div>
       </div>
 
-      {/* top bar */}
-      <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
-        <div className="glass-pill flex items-center gap-2">
-          <i className="ri-film-line" />
-          <span className="text-xs font-semibold">EP {data.episodeNo}</span>
-          {/* ✅ hilangkan label resolusi di sini (40p dst) */}
-        </div>
+      {/* top right controls (kualitas + mute) */}
+      <div className="absolute top-4 left-4 right-4 flex items-center justify-end gap-2">
+        <button
+          className="glass-pill"
+          onClick={data.qualities?.length ? onOpenQuality : undefined}
+          style={{ opacity: data.qualities?.length ? 1 : 0.55 }}
+          title="Kualitas"
+        >
+          <i className="ri-settings-3-line" /> <span className="text-xs">Kualitas</span>
+        </button>
 
-        <div className="flex items-center gap-2">
-          <button
-            className="glass-pill"
-            onClick={data.qualities?.length ? onOpenQuality : undefined}
-            style={{ opacity: data.qualities?.length ? 1 : 0.55 }}
-            title="Kualitas"
-          >
-            <i className="ri-settings-3-line" /> <span className="text-xs">Kualitas</span>
-          </button>
-
-          <button className="glass-pill" onClick={onToggleMute} title="Mute">
-            <i className={data.muted ? "ri-volume-mute-line" : "ri-volume-up-line"} />
-          </button>
-        </div>
+        <button className="glass-pill" onClick={onToggleMute} title="Mute">
+          <i className={data.muted ? "ri-volume-mute-line" : "ri-volume-up-line"} />
+        </button>
       </div>
 
-      {/* right actions */}
+      {/* right actions (EP + like + share + next) */}
       <div className="absolute right-4 bottom-28 flex flex-col gap-3 items-center">
+        {/* EP above like */}
+        <div className="glass-pill px-3 py-2 text-xs font-semibold">EP {data.episodeNo}</div>
+
         <div className="flex flex-col items-center gap-1">
           <button
             onClick={onToggleLike}
@@ -211,16 +238,10 @@ function Slide({
               }
             />
           </button>
-          {/* ✅ total likes di bawah love */}
-          <div className="text-[11px] text-white/75 select-none">
-            {formatLikes(data.likeCount || 0)}
-          </div>
+          <div className="text-[11px] text-white/75 select-none">{formatLikes(data.likeCount || 0)}</div>
         </div>
 
-        <button
-          className="w-12 h-12 rounded-2xl bg-white/10 border border-white/10 backdrop-blur-xl"
-          title="Share"
-        >
+        <button className="w-12 h-12 rounded-2xl bg-white/10 border border-white/10 backdrop-blur-xl" title="Share">
           <i className="ri-share-forward-line text-xl" />
         </button>
 
@@ -233,12 +254,10 @@ function Slide({
         </button>
       </div>
 
-      {/* bottom info */}
+      {/* bottom info (NO PANSA text / NO hint text) */}
       <div className="absolute left-4 right-20 bottom-24">
-        {/* ✅ hilangkan “PANSA” / teks instruksi */}
         <div className="font-display font-bold text-xl md:text-2xl">{data.title}</div>
 
-        {/* progress */}
         <div className="mt-4">
           <div className="progress-rail">
             <div className="progress-fill" style={{ width: `${pct}%` }} />
@@ -249,7 +268,6 @@ function Slide({
           </div>
         </div>
 
-        {/* nav ep */}
         <div className="mt-3 flex items-center gap-2">
           <button onClick={onRequestPrev} className="glass-pill text-xs">
             <i className="ri-arrow-down-s-line" /> Prev
@@ -257,7 +275,6 @@ function Slide({
           <button onClick={onRequestNext} className="glass-pill text-xs">
             <i className="ri-arrow-up-s-line" /> Next
           </button>
-          {/* ✅ hilangkan tombol Best */}
         </div>
       </div>
 
@@ -271,6 +288,8 @@ function Slide({
     </div>
   );
 }
+
+/* ---------------- Player ---------------- */
 
 export default function Player() {
   const { shortPlayId } = useParams();
@@ -292,32 +311,70 @@ export default function Player() {
 
   const title = meta?.title || "";
 
-  // ✅ hide bottom nav ONLY while player is mounted (tanpa ubah komponen lain)
+  // ✅ hide BottomNavMobile from AppShell while Player mounted
   useEffect(() => {
-    document.documentElement.classList.add("is-player");
-    return () => document.documentElement.classList.remove("is-player");
+    const restores = [];
+
+    const hideEl = (el) => {
+      if (!el || !(el instanceof HTMLElement)) return;
+      // do not hide BottomSheet overlay/dialog if you later mark it
+      if (el.getAttribute("data-bottomsheet") === "true") return;
+
+      const prev = {
+        display: el.style.display,
+        visibility: el.style.visibility,
+        pointerEvents: el.style.pointerEvents,
+      };
+
+      el.style.display = "none";
+      el.style.visibility = "hidden";
+      el.style.pointerEvents = "none";
+
+      restores.push(() => {
+        el.style.display = prev.display;
+        el.style.visibility = prev.visibility;
+        el.style.pointerEvents = prev.pointerEvents;
+      });
+    };
+
+    // 1) hide element containing the bottom nav texts
+    const candidates = Array.from(document.querySelectorAll("nav, footer, div, section"));
+    for (const el of candidates) {
+      const txt = (el.innerText || "").toLowerCase();
+      const matchText =
+        txt.includes("home") &&
+        txt.includes("cari") &&
+        txt.includes("history") &&
+        txt.includes("favorit");
+
+      if (matchText) hideEl(el);
+    }
+
+    // 2) fallback: hide any fixed-bottom bar with large z-index (often nav)
+    const all = Array.from(document.querySelectorAll("nav, footer, div, section"));
+    for (const el of all) {
+      if (!(el instanceof HTMLElement)) continue;
+      const st = window.getComputedStyle(el);
+      const isFixedBottom =
+        st.position === "fixed" &&
+        (st.bottom === "0px" || st.bottom === "0") &&
+        (Number(st.zIndex || 0) >= 10);
+      if (isFixedBottom) hideEl(el);
+    }
+
+    return () => restores.forEach((fn) => fn());
   }, []);
 
   const baseLikeCount = useMemo(() => {
-    // kalau meta punya likeNums misal "4.8K", kita parse kasar
-    const raw = meta?.likeNums ?? meta?.likeCount ?? 0;
-    const s = String(raw).trim();
-    if (!s) return 0;
-    // handle "4.8K"
-    const m = s.match(/^([\d.]+)\s*([kKmM])?$/);
-    if (m) {
-      const num = parseFloat(m[1]);
-      const suf = (m[2] || "").toLowerCase();
-      if (suf === "k") return Math.round(num * 1000);
-      if (suf === "m") return Math.round(num * 1000000);
-      if (Number.isFinite(num)) return Math.round(num);
-    }
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : 0;
+    // kalau meta punya likeNums, ambil
+    const fromMeta = parseLikeNums(meta?.likeNums ?? meta?.likeCount ?? 0);
+    return fromMeta;
   }, [meta]);
 
   const mapEpisode = (ep, url, qualities = []) => {
     const qPick = qualities?.[qualities.length - 1] || qualities?.[0] || null;
+    const likeCount = baseLikeCount > 0 ? baseLikeCount : stableDummyLikes(shortPlayId, ep.episodeNo);
+
     return {
       episodeNo: ep.episodeNo,
       episodeId: ep.episodeId,
@@ -326,17 +383,13 @@ export default function Player() {
       qualities: qualities.length ? qualities : url ? [{ quality: "Auto", url }] : [],
       muted: false,
       liked: false,
-      likeCount: baseLikeCount, // ✅ likes tampil di UI
+      likeCount,
     };
   };
 
   const fetchVideoAndVariants = async (ep) => {
     try {
-      const r = await ns.videoUrl({
-        shortPlayId,
-        episodeId: ep.episodeId,
-        episodeNo: ep.episodeNo,
-      });
+      const r = await ns.videoUrl({ shortPlayId, episodeId: ep.episodeId, episodeNo: ep.episodeNo });
       if (r.data?.unlockResult?.data === false) return { url: null, qualities: [] };
 
       const url =
@@ -390,14 +443,13 @@ export default function Player() {
 
         setItems(fetched);
         setActiveIndex(0);
-        requestAnimationFrame(() =>
-          wrapRef.current?.scrollTo({ top: 0, behavior: "auto" })
-        );
+        requestAnimationFrame(() => wrapRef.current?.scrollTo({ top: 0, behavior: "auto" }));
       } finally {
         loading.hide();
       }
     })();
-  }, [shortPlayId]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shortPlayId]);
 
   useEffect(() => {
     const root = wrapRef.current;
@@ -463,7 +515,8 @@ export default function Player() {
         nextEpNo += 1;
       }
     })();
-  }, [activeIndex, episodes, items]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeIndex, episodes, items]);
 
   const requestNext = useCallback(async () => {
     if (!episodes.length || !items.length) return;
@@ -491,7 +544,8 @@ export default function Player() {
     } finally {
       loading.hide();
     }
-  }, [episodes, items, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [episodes, items, loading]);
 
   const requestPrev = useCallback(() => {
     const prev = Math.max(0, activeIndex - 1);
@@ -523,11 +577,7 @@ export default function Player() {
 
   const setQuality = (idx, choice) => {
     if (!choice?.url) return;
-    setItems((prev) =>
-      prev.map((x, i) =>
-        i === idx ? { ...x, videoUrl: choice.url } : x
-      )
-    );
+    setItems((prev) => prev.map((x, i) => (i === idx ? { ...x, videoUrl: choice.url } : x)));
   };
 
   if (!items.length) {
@@ -547,7 +597,7 @@ export default function Player() {
 
   return (
     <div className="h-screen">
-      {/* ✅ back button only (tidak ada resolusi di dekat back) */}
+      {/* back only */}
       <div className="absolute top-4 left-4 z-50">
         <button onClick={() => nav(-1)} className="glass-pill text-sm">
           <i className="ri-arrow-left-line" /> Detail
@@ -574,15 +624,8 @@ export default function Player() {
         ))}
       </div>
 
-      <BottomSheet
-        open={sheetOpen}
-        title="Pilih Kualitas"
-        onClose={() => setSheetOpen(false)}
-        height="58vh"
-      >
-        <div className="text-sm text-white/70">
-          Pilih kualitas streaming (jika tersedia).
-        </div>
+      <BottomSheet open={sheetOpen} title="Pilih Kualitas" onClose={() => setSheetOpen(false)} height="58vh">
+        <div className="text-sm text-white/70">Pilih kualitas streaming (jika tersedia).</div>
 
         <div className="mt-4 grid gap-2">
           {(activeSlide?.qualities || []).length ? (
@@ -596,31 +639,17 @@ export default function Player() {
                     setSheetOpen(false);
                   }}
                   className={`w-full text-left rounded-2xl px-4 py-4 border transition ${
-                    selected
-                      ? "bg-white/12 border-white/20"
-                      : "bg-white/6 border-white/10 hover:bg-white/10"
+                    selected ? "bg-white/12 border-white/20" : "bg-white/6 border-white/10 hover:bg-white/10"
                   }`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="font-semibold">
                       {q.quality || "Auto"}
-                      {selected ? (
-                        <span className="ml-2 text-[11px] text-[rgb(var(--brand))]">
-                          Selected
-                        </span>
-                      ) : null}
+                      {selected ? <span className="ml-2 text-[11px] text-[rgb(var(--brand))]">Selected</span> : null}
                     </div>
-                    <i
-                      className={
-                        selected
-                          ? "ri-check-line text-[rgb(var(--brand))]"
-                          : "ri-arrow-right-s-line"
-                      }
-                    />
+                    <i className={selected ? "ri-check-line text-[rgb(var(--brand))]" : "ri-arrow-right-s-line"} />
                   </div>
-                  <div className="mt-1 text-xs text-white/60 line-clamp-1">
-                    Streaming quality option
-                  </div>
+                  <div className="mt-1 text-xs text-white/60 line-clamp-1">Streaming quality option</div>
                 </button>
               );
             })
@@ -631,9 +660,7 @@ export default function Player() {
           )}
         </div>
 
-        <div className="mt-4 text-xs text-white/50">
-          Tips: pilih kualitas lebih rendah untuk jaringan lambat.
-        </div>
+        <div className="mt-4 text-xs text-white/50">Tips: pilih kualitas lebih rendah untuk jaringan lambat.</div>
       </BottomSheet>
     </div>
   );
