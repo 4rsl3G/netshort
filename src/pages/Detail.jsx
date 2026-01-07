@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-
 import { ns } from "../api/netshort";
-import { useLoading } from "../state/loading";
 import { lists } from "../state/lists";
-
 import LazyImage from "../components/LazyImage";
 import { VIP_EFFECT } from "../config/ui";
 import { SkelDetail, SkelEpisodeList } from "../components/Skeletons";
@@ -12,12 +9,12 @@ import { SkelDetail, SkelEpisodeList } from "../components/Skeletons";
 export default function Detail() {
   const { shortPlayId } = useParams();
   const nav = useNavigate();
-  const loading = useLoading();
 
   const [meta, setMeta] = useState(null);
   const [error, setError] = useState(null);
+  const [fav, setFav] = useState(() => lists.isFavorite(shortPlayId));
 
-  // derive values
+  // derive values (bukan hook, aman di sini)
   const title = meta?.title || "Judul tidak ada";
   const cover = meta?.cover || "";
   const episodeCount = meta?.episodeCount || meta?.episodes?.length || 0;
@@ -25,7 +22,6 @@ export default function Detail() {
   const synopsis = meta?.shotIntroduce || null;
   const casts = meta?.actorList || null;
 
-  // hooks (selalu terpanggil)
   const favItem = useMemo(
     () => ({
       shortPlayId,
@@ -35,55 +31,25 @@ export default function Detail() {
     [shortPlayId, title, cover]
   );
 
-  const [fav, setFav] = useState(() => lists.isFavorite(shortPlayId));
-
   useEffect(() => {
     setFav(lists.isFavorite(shortPlayId));
   }, [shortPlayId]);
 
   useEffect(() => {
     let alive = true;
-
-    // reset state sebelum fetch
-    setMeta(null);
-    setError(null);
-
-    // ✅ overlay muncul saat mulai request
-    loading.show();
-
     (async () => {
       try {
         const r = await ns.episodes(shortPlayId);
-
-        // validasi minimal biar yakin "sukses dapat data"
-        const data = r?.data;
-        if (!data || (!data.title && !data.cover && !Array.isArray(data.episodes))) {
-          throw new Error("Invalid response");
-        }
-
         if (!alive) return;
-
-        // ✅ set meta dulu (sukses dapat data)
-        setMeta(data);
-
-        // ✅ overlay hilang SETELAH sukses setMeta
-        loading.hide();
+        setMeta(r.data);
       } catch (e) {
-        console.error(e);
         if (!alive) return;
-
-        setError("Gagal memuat detail. Coba refresh.");
-        // ✅ kalau error, overlay tetap ditutup
-        loading.hide();
+        console.error(e);
+        setError("Gagal memuat detail.");
       }
     })();
-
-    return () => {
-      alive = false;
-      // safety: kalau pindah halaman saat loading
-      loading.hide();
-    };
-  }, [shortPlayId, loading]);
+    return () => { alive = false };
+  }, [shortPlayId]);
 
   const toggleFav = () => {
     lists.toggleFavorite(favItem);
@@ -97,7 +63,8 @@ export default function Detail() {
 
   const vipClass = VIP_EFFECT === 2 ? "vip-e2" : "";
 
-  if (!meta) return <SkelDetail />;
+  if (!meta && !error) return <SkelDetail />;
+  if (error && !meta) return <SkelDetail />;
 
   return (
     <div className="pb-10">
@@ -174,10 +141,7 @@ export default function Detail() {
         <div className="mt-6">
           <div className="flex items-center justify-between">
             <div className="pansa-h2">Daftar Episode</div>
-            <button
-              onClick={() => play(1)}
-              className="text-sm text-muted hover:text-text"
-            >
+            <button onClick={() => play(1)} className="text-sm text-muted hover:text-text">
               Putar dari awal <i className="ri-arrow-right-line" />
             </button>
           </div>
