@@ -15,16 +15,17 @@ export default function Detail() {
   const loading = useLoading();
 
   const [meta, setMeta] = useState(null);
+  const [error, setError] = useState(null);
 
-  // ✅ hooks HARUS di atas, jangan setelah return conditional
+  // ✅ derive values boleh sebelum return (ini bukan hook)
   const title = meta?.title || "Judul tidak ada";
   const cover = meta?.cover || "";
   const episodeCount = meta?.episodeCount || meta?.episodes?.length || 0;
   const episodes = meta?.episodes || [];
-
   const synopsis = meta?.shotIntroduce || null;
   const casts = meta?.actorList || null;
 
+  // ✅ HOOK harus selalu kepanggil, jadi taruh di atas
   const favItem = useMemo(
     () => ({
       shortPlayId,
@@ -36,7 +37,7 @@ export default function Detail() {
 
   const [fav, setFav] = useState(() => lists.isFavorite(shortPlayId));
 
-  // ✅ kalau ganti shortPlayId, sync status fav
+  // ✅ sync fav saat pindah item detail
   useEffect(() => {
     setFav(lists.isFavorite(shortPlayId));
   }, [shortPlayId]);
@@ -46,16 +47,21 @@ export default function Detail() {
 
     (async () => {
       loading.show();
+      setError(null);
       try {
         const r = await ns.episodes(shortPlayId);
         if (alive) setMeta(r.data);
+      } catch (e) {
+        console.error(e);
+        if (alive) setError("Gagal memuat detail. Coba refresh.");
       } finally {
-        loading.hide();
+        if (alive) loading.hide();
       }
     })();
 
     return () => {
       alive = false;
+      loading.hide(); // safety: kalau pindah route cepat
     };
   }, [shortPlayId, loading]);
 
@@ -71,7 +77,7 @@ export default function Detail() {
 
   const vipClass = VIP_EFFECT === 2 ? "vip-e2" : "";
 
-  // ✅ baru boleh conditional return di bawah semua hooks
+  // ✅ baru boleh return conditional setelah semua hooks di atas
   if (!meta) return <SkelDetail />;
 
   return (
@@ -95,6 +101,13 @@ export default function Detail() {
         <div className="mt-2 text-muted text-sm">
           {episodeCount ? `${episodeCount} episode` : ""}
         </div>
+
+        {error && (
+          <div className="mt-4 pansa-card p-4 border border-red-500/30 bg-red-500/10 text-sm">
+            <div className="font-semibold">Error</div>
+            <div className="text-muted mt-1">{error}</div>
+          </div>
+        )}
 
         <div className="mt-5 flex gap-3">
           <button onClick={() => play(1)} className="pansa-btn-primary">
