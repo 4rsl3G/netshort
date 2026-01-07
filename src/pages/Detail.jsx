@@ -17,7 +17,7 @@ export default function Detail() {
   const [meta, setMeta] = useState(null);
   const [error, setError] = useState(null);
 
-  // ✅ derive values boleh sebelum return (ini bukan hook)
+  // derive values
   const title = meta?.title || "Judul tidak ada";
   const cover = meta?.cover || "";
   const episodeCount = meta?.episodeCount || meta?.episodes?.length || 0;
@@ -25,7 +25,7 @@ export default function Detail() {
   const synopsis = meta?.shotIntroduce || null;
   const casts = meta?.actorList || null;
 
-  // ✅ HOOK harus selalu kepanggil, jadi taruh di atas
+  // hooks (selalu terpanggil)
   const favItem = useMemo(
     () => ({
       shortPlayId,
@@ -37,7 +37,6 @@ export default function Detail() {
 
   const [fav, setFav] = useState(() => lists.isFavorite(shortPlayId));
 
-  // ✅ sync fav saat pindah item detail
   useEffect(() => {
     setFav(lists.isFavorite(shortPlayId));
   }, [shortPlayId]);
@@ -45,23 +44,44 @@ export default function Detail() {
   useEffect(() => {
     let alive = true;
 
+    // reset state sebelum fetch
+    setMeta(null);
+    setError(null);
+
+    // ✅ overlay muncul saat mulai request
+    loading.show();
+
     (async () => {
-      loading.show();
-      setError(null);
       try {
         const r = await ns.episodes(shortPlayId);
-        if (alive) setMeta(r.data);
+
+        // validasi minimal biar yakin "sukses dapat data"
+        const data = r?.data;
+        if (!data || (!data.title && !data.cover && !Array.isArray(data.episodes))) {
+          throw new Error("Invalid response");
+        }
+
+        if (!alive) return;
+
+        // ✅ set meta dulu (sukses dapat data)
+        setMeta(data);
+
+        // ✅ overlay hilang SETELAH sukses setMeta
+        loading.hide();
       } catch (e) {
         console.error(e);
-        if (alive) setError("Gagal memuat detail. Coba refresh.");
-      } finally {
-        if (alive) loading.hide();
+        if (!alive) return;
+
+        setError("Gagal memuat detail. Coba refresh.");
+        // ✅ kalau error, overlay tetap ditutup
+        loading.hide();
       }
     })();
 
     return () => {
       alive = false;
-      loading.hide(); // safety: kalau pindah route cepat
+      // safety: kalau pindah halaman saat loading
+      loading.hide();
     };
   }, [shortPlayId, loading]);
 
@@ -77,7 +97,6 @@ export default function Detail() {
 
   const vipClass = VIP_EFFECT === 2 ? "vip-e2" : "";
 
-  // ✅ baru boleh return conditional setelah semua hooks di atas
   if (!meta) return <SkelDetail />;
 
   return (
@@ -168,7 +187,7 @@ export default function Detail() {
               {episodes.map((ep) => (
                 <button
                   key={ep.episodeId}
-                  onClick={() => play(ep.episodeNo)} // ✅ no lock
+                  onClick={() => play(ep.episodeNo)}
                   className="ep-btn"
                   title="Play"
                 >
