@@ -85,8 +85,20 @@ function stableDummyLikes(shortPlayId, episodeNo) {
   const s = `${shortPlayId}-${episodeNo}`;
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  // 1K - 120K
-  return 1000 + (h % 119000);
+  return 1000 + (h % 119000); // 1K - 120K
+}
+
+function getLikeFromLocalStorage(shortPlayId) {
+  try {
+    const v =
+      localStorage.getItem(`pansa_like_${shortPlayId}`) ||
+      localStorage.getItem(`pansa_likenums_${shortPlayId}`) ||
+      "";
+    const n = parseLikeNums(v);
+    return n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
 }
 
 /* ---------------- Slide ---------------- */
@@ -203,7 +215,7 @@ function Slide({
         <div className="text-7xl drop-shadow-[0_20px_50px_rgba(0,0,0,0.6)]">💚</div>
       </div>
 
-      {/* top right controls (kualitas + mute) */}
+      {/* top right controls */}
       <div className="absolute top-4 left-4 right-4 flex items-center justify-end gap-2">
         <button
           className="glass-pill"
@@ -219,7 +231,7 @@ function Slide({
         </button>
       </div>
 
-      {/* right actions (EP + like + share + next) */}
+      {/* right actions */}
       <div className="absolute right-4 bottom-28 flex flex-col gap-3 items-center">
         {/* EP above like */}
         <div className="glass-pill px-3 py-2 text-xs font-semibold">EP {data.episodeNo}</div>
@@ -254,7 +266,7 @@ function Slide({
         </button>
       </div>
 
-      {/* bottom info (NO PANSA text / NO hint text) */}
+      {/* bottom info (no hint text) */}
       <div className="absolute left-4 right-20 bottom-24">
         <div className="font-display font-bold text-xl md:text-2xl">{data.title}</div>
 
@@ -311,65 +323,13 @@ export default function Player() {
 
   const title = meta?.title || "";
 
-  // ✅ hide BottomNavMobile from AppShell while Player mounted
-  useEffect(() => {
-    const restores = [];
-
-    const hideEl = (el) => {
-      if (!el || !(el instanceof HTMLElement)) return;
-      // do not hide BottomSheet overlay/dialog if you later mark it
-      if (el.getAttribute("data-bottomsheet") === "true") return;
-
-      const prev = {
-        display: el.style.display,
-        visibility: el.style.visibility,
-        pointerEvents: el.style.pointerEvents,
-      };
-
-      el.style.display = "none";
-      el.style.visibility = "hidden";
-      el.style.pointerEvents = "none";
-
-      restores.push(() => {
-        el.style.display = prev.display;
-        el.style.visibility = prev.visibility;
-        el.style.pointerEvents = prev.pointerEvents;
-      });
-    };
-
-    // 1) hide element containing the bottom nav texts
-    const candidates = Array.from(document.querySelectorAll("nav, footer, div, section"));
-    for (const el of candidates) {
-      const txt = (el.innerText || "").toLowerCase();
-      const matchText =
-        txt.includes("home") &&
-        txt.includes("cari") &&
-        txt.includes("history") &&
-        txt.includes("favorit");
-
-      if (matchText) hideEl(el);
-    }
-
-    // 2) fallback: hide any fixed-bottom bar with large z-index (often nav)
-    const all = Array.from(document.querySelectorAll("nav, footer, div, section"));
-    for (const el of all) {
-      if (!(el instanceof HTMLElement)) continue;
-      const st = window.getComputedStyle(el);
-      const isFixedBottom =
-        st.position === "fixed" &&
-        (st.bottom === "0px" || st.bottom === "0") &&
-        (Number(st.zIndex || 0) >= 10);
-      if (isFixedBottom) hideEl(el);
-    }
-
-    return () => restores.forEach((fn) => fn());
-  }, []);
-
   const baseLikeCount = useMemo(() => {
-    // kalau meta punya likeNums, ambil
+    // Prioritas: localStorage (disimpan dari list sebelumnya) -> meta.likeNums -> 0
+    const fromLS = getLikeFromLocalStorage(shortPlayId);
+    if (fromLS > 0) return fromLS;
     const fromMeta = parseLikeNums(meta?.likeNums ?? meta?.likeCount ?? 0);
-    return fromMeta;
-  }, [meta]);
+    return fromMeta > 0 ? fromMeta : 0;
+  }, [meta, shortPlayId]);
 
   const mapEpisode = (ep, url, qualities = []) => {
     const qPick = qualities?.[qualities.length - 1] || qualities?.[0] || null;
@@ -491,6 +451,7 @@ export default function Player() {
     return () => root.removeEventListener("scroll", onScroll);
   }, []);
 
+  // infinite: preload next when near end
   useEffect(() => {
     (async () => {
       if (!episodes.length || !items.length) return;
@@ -552,6 +513,7 @@ export default function Player() {
     goToIndex(prev);
   }, [activeIndex]);
 
+  // auto next when video ended
   const handleEnded = (idx) => {
     const next = idx + 1;
     if (next < items.length) {
@@ -597,7 +559,6 @@ export default function Player() {
 
   return (
     <div className="h-screen">
-      {/* back only */}
       <div className="absolute top-4 left-4 z-50">
         <button onClick={() => nav(-1)} className="glass-pill text-sm">
           <i className="ri-arrow-left-line" /> Detail
