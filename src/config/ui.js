@@ -1,0 +1,1 @@
+export const VIP_EFFECT = 2;
